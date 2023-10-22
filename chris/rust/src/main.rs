@@ -37,33 +37,31 @@ fn process(data: &[u8]) -> Results {
     let data_len = data.len();
 
     while pos < data_len {
-        while data[pos] == b'\r' || data[pos] == b'\n' {
-            pos += 1;
-            if pos >= data_len {
-                return ret;
-            }
-        }
-
-        // we're at the start of a line
+        // pos is the start of a line
 
         let value_start = {
-            let mut start = pos + 13;
-            // we're now looking at the start of the fourth field
+            // the first 5 fields are fixed-length
+            let mut start = pos + 27;
+            // we're now looking at the start of the sixth field
 
-            // skip over 4 commas to get to the eighth field
-            for _ in 0..4 {
-                while data[start] != b',' {
-                    start += 1;
-                }
+            // skip over 2 commas to get to the eighth field
+
+            while data[start] != b',' {
                 start += 1;
             }
+            start += 1;
+
+            while data[start] != b',' {
+                start += 1;
+            }
+            start += 1;
 
             start
         };
 
-        let mut end = value_start + 1;
-        while end < data_len && data[end] != b'\r' && data[end] != b'\n' {
-            end += 1;
+        let mut carriage_return = value_start + 1;
+        while data[carriage_return] > b'\r' {
+            carriage_return += 1;
         }
 
         if data[pos + 7] == b'1' {
@@ -78,15 +76,16 @@ fn process(data: &[u8]) -> Results {
                 + (data[pos + 10] - b'0') as u16 * 10
                 + (data[pos + 11] - b'0') as u16;
 
-            let value = unsafe { std::str::from_utf8_unchecked(&data[value_start..end]) }
-                .parse::<u64>()
-                .unwrap();
+            let value =
+                unsafe { std::str::from_utf8_unchecked(&data[value_start..carriage_return]) }
+                    .parse::<u64>()
+                    .unwrap();
 
             let index = country_year_index(country, year);
             ret.totals[index] += value;
         }
 
-        pos = end;
+        pos = carriage_return + 2;
     }
 
     ret
@@ -100,7 +99,11 @@ fn split_at_newlines<'a>(data: &'a [u8], count: usize) -> Vec<&'a [u8]> {
     let mut offset = 0;
     while offset < data_len {
         let mut end = offset + estimated_part_size;
-        while end < data_len && data[end] != b'\n' {
+        while end < data_len {
+            if data[end] == b'\n' {
+                end += 1;
+                break;
+            }
             end += 1;
         }
         if end >= data_len || result.len() == count - 1 {

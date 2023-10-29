@@ -1,0 +1,6 @@
+node_modules
+.DS_Store
+notes.txt
+dist/index.bundle.js
+dist/index.bundle.js.map
+.vscode

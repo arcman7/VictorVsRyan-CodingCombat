@@ -1,0 +1,10 @@
+{
+  "devDependencies": {
+    "esbuild": "0.19.5"
+  },
+  "dependencies": {
+    "@types/node": "^20.8.9",
+    "@webgpu/types": "^0.1.38",
+    "typescript": "^5.2.2"
+  }
+}

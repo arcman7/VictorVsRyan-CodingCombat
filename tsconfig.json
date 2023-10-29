@@ -1,0 +1,23 @@
+{
+    /* Visit https://aka.ms/tsconfig to read more about this file */
+    "compilerOptions": {
+      "rootDir": "src",
+      // "outDir": "dist",
+      "types": ["node", "@webgpu/types"],
+      "lib": ["es2017", "dom"],
+      /* Language and Environment */
+      "target": "es6",
+      "module": "es2015",
+      "allowSyntheticDefaultImports": true,
+      "esModuleInterop": true,
+      "strict": true,
+      "sourceMap": true,
+      "moduleResolution": "node",
+      "strictPropertyInitialization": false,
+      "forceConsistentCasingInFileNames": true,
+      "noFallthroughCasesInSwitch": true
+    },
+    "exclude": ["node_modules"],
+    "typeRoots": ["node_modules/@types", "node_modules/@webgpu/types"],
+    "include": ["src"]
+  }

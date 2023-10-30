@@ -1,0 +1,17 @@
+[package]
+edition = "2021"
+name = "csv-test"
+version = "0.1.0"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+panic = "abort"
+strip = "symbols" # "symbols"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+libc = "0.2"
+num_cpus = "1.13"
+thiserror = "1"

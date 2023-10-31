@@ -39,33 +39,28 @@ fn process(data: &[u8]) -> Results {
     while pos < data_len {
         // pos is the start of a line
 
-        let value_start = {
-            // the first 5 fields are fixed-length
-            let mut start = pos + 27;
-            // we're now looking at the start of the sixth field
-
-            // skip over 2 commas to get to the eighth field
-
-            while data[start] != b',' {
-                start += 1;
-            }
-            start += 1;
-
-            while data[start] != b',' {
-                start += 1;
-            }
-            start += 1;
-
-            start
-        };
-
-        let mut carriage_return = value_start + 1;
-        while data[carriage_return] > b'\r' {
-            carriage_return += 1;
-        }
-
         if data[pos + 7] == b'1' {
             // this is an export
+
+            let value_start = {
+                // the first 5 fields are fixed-length
+                let mut start = pos + 28;
+                // we're now looking at the second character of the sixth field
+
+                // skip over 2 commas to get to the eighth field
+
+                while data[start] != b',' {
+                    start += 1;
+                }
+                start += 2;
+
+                while data[start] != b',' {
+                    start += 1;
+                }
+                start += 1;
+
+                start
+            };
 
             let year = (data[pos] - b'0') as u16 * 1000
                 + (data[pos + 1] - b'0') as u16 * 100
@@ -76,16 +71,25 @@ fn process(data: &[u8]) -> Results {
                 + (data[pos + 10] - b'0') as u16 * 10
                 + (data[pos + 11] - b'0') as u16;
 
-            let value =
-                unsafe { std::str::from_utf8_unchecked(&data[value_start..carriage_return]) }
-                    .parse::<u64>()
-                    .unwrap();
+            let mut value = 0;
+            pos = value_start;
+            while data[pos] != b'\r' {
+                value = value * 10 + (data[pos] - b'0') as u64;
+                pos += 1;
+            }
+            pos += 2;
 
             let index = country_year_index(country, year);
             ret.totals[index] += value;
-        }
+        } else {
+            pos += 32;
 
-        pos = carriage_return + 2;
+            while data[pos] != b'\r' {
+                pos += 1;
+            }
+
+            pos += 2;
+        }
     }
 
     ret

@@ -4,3 +4,5 @@ notes.txt
 dist/index.bundle.js
 dist/index.bundle.js.map
 .vscode
+examples
+dist/custom_1988_2020.csv

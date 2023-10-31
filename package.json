@@ -1,10 +1,17 @@
 {
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "esbuild src/index.ts --bundle --minify --external:fs --external:path --loader:.png=dataurl --loader:.jpg=dataurl --loader:.jpeg=dataurl --loader:.wgsl=text --loader:.glsl=text --sourcemap --outfile=dist/index.bundle.js",
+    "watch": "esbuild src/index.ts --bundle --minify --external:fs --external:path --loader:.png=dataurl --loader:.jpg=dataurl --loader:.jpeg=dataurl --loader:.wgsl=text --loader:.glsl=text --sourcemap --outfile=dist/index.bundle.js --watch",
+    "prod": "esbuild src/index.ts --bundle --minify --external:fs --external:path --loader:.png=dataurl --loader:.jpg=dataurl --loader:.jpeg=dataurl --loader:.wgsl=text --loader:.glsl=text --outfile=dist/index.bundle.js",
+    "watch-prod": "esbuild src/index.ts --bundle --minify --external:fs --external:path --loader:.png=dataurl --loader:.jpg=dataurl --loader:.jpeg=dataurl --loader:.wgsl=text --loader:.glsl=text --outfile=dist/index.bundle.js --watch"
+  },
   "devDependencies": {
-    "esbuild": "0.19.5"
+    "@types/node": "^20.8.9",
+    "@webgpu/types": "^0.1.38"
   },
   "dependencies": {
-    "@types/node": "^20.8.9",
-    "@webgpu/types": "^0.1.38",
+    "esbuild": "0.19.5",
     "typescript": "^5.2.2"
   }
 }

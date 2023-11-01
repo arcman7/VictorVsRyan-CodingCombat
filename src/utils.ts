@@ -61,32 +61,6 @@ export function blobToArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
   });
 }
 
-// export async function createGPUBufferFromBlob(device: GPUDevice, blob: Blob) {
-//   const arrayBuffer = await blobToArrayBuffer(blob);
-//   const gpuBuffer = device.createBuffer({
-//     size: arrayBuffer.byteLength,
-//     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-//     mappedAtCreation: true
-//   });
-
-//   // Copy array buffer to GPU buffer
-//   new Uint8Array(gpuBuffer.getMappedRange()).set(new Uint8Array(arrayBuffer));
-//   gpuBuffer.unmap();
-
-//   return gpuBuffer;
-// }
-
-// export function createGPUBuffer(
-//   device: GPUDevice, totalSize: number, mappedAtCreation: boolean = false
-// ) {
-//   return device.createBuffer({
-//     label: 'blob slice size - ' + totalSize,
-//     size: totalSize,
-//     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-//     mappedAtCreation,
-//   });
-// }
-
 export function sliceBlob(blob: Blob, size: number) {
   let start = 0;
   let chunks = [];
@@ -97,43 +71,6 @@ export function sliceBlob(blob: Blob, size: number) {
   }
   return chunks;
 }
-
-// export async function mapChunksToGPUBuffer(gpuDevice: GPUDevice, gpuBuffer: GPUBuffer, blobChunks: Blob[]) {
-//   let offset = 0;
-//   for (const chunk of blobChunks) {
-//     const arrayBuffer = await blobToArrayBuffer(chunk); // Using the blobToArrayBuffer function from earlier
-//     gpuDevice.queue.writeBuffer(gpuBuffer, offset, arrayBuffer);
-//     offset += arrayBuffer.byteLength;
-//     if (offset > gpuBuffer.size) return;
-//   }
-// }
-
-// async function mapChunksToGPUBuffer(gpuDevice: GPUDevice, gpuBuffer: GPUBuffer, blob: Blob, chunkSize: number) {
-//   let offset = 0;
-//   while (offset < blob.size) {
-//     // Calculate the size of the current chunk
-//     let size = Math.min(chunkSize, blob.size - offset);
-
-//     // Slice the chunk and convert it to an ArrayBuffer
-//     let chunk = blob.slice(offset, offset + size);
-//     const arrayBuffer = await blobToArrayBuffer(chunk);
-
-//     // Write the chunk to the GPU buffer
-//     gpuDevice.queue.writeBuffer(gpuBuffer, offset, arrayBuffer);
-
-//     offset += size;
-//   }
-// }
-
-// export async function handleLargeFile(gpuDevice: GPUDevice, blob: Blob) {
-//   const chunkSize = 1 * 1024 * 1024 * 1024; // 1GB, adjust as needed
-//   const gpuBuffer = createLargeGPUBuffer(gpuDevice, Math.min(blob.size, 4 * 1024 * 1024 * 1024)); // Limit buffer to 4GB
-
-//   await mapChunksToGPUBuffer(gpuDevice, gpuBuffer, blob, chunkSize);
-//   // gpuBuffer now contains up to the first 4GB of the file
-// }
-
-//////////////
 
 export function alignToFourBytes(size: number) {
   // return size - (size % 4);
@@ -153,7 +90,7 @@ export const expandBuffer = (
     throw new Error('New buffer size must be larger than the original.')
   }
   // Create a new buffer of the required size
-  let newBuffer = new ArrayBuffer(newSizeBytes);
+  // let newBuffer = new ArrayBuffer(newSizeBytes);
 
   // Create views for copying data
   let sourceView = new Uint8Array(sourceBuffer);
@@ -161,57 +98,9 @@ export const expandBuffer = (
 
   // Copy data from the source buffer to the new buffer
   newView.set(sourceView, 0);
-
   // The rest of the new buffer will be initialized to 0s
-  return newBuffer;
+  return newView;
 }
-
-// export function createGPUBufferChunks(device: GPUDevice, blob: Blob, chunkSize: number) {
-//   let offset = 0;
-//   let gpuBuffers = [];
-//   while (offset < blob.size) {
-//     let size = Math.min(chunkSize, blob.size - offset);
-//     size = alignToFourBytes(size); // Align size to 4 bytes
-//     let gpuBuffer = device.createBuffer({
-//       size,
-//       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-//       mappedAtCreation: false
-//     });
-//     gpuBuffers.push({ gpuBuffer, offset, size });
-//     offset += size;
-//   }
-//   return gpuBuffers;
-// }
-// async function mapBlobToGPUBuffers(
-//   device: GPUDevice, blob: Blob,
-//   gpuBuffers: ReturnType<typeof createGPUBufferChunks>
-// ) {
-//   for (let { gpuBuffer, offset, size } of gpuBuffers) {
-//     let chunk = blob.slice(offset, offset + size);
-//     let arrayBuffer = await blobToArrayBuffer(chunk); // Assuming blobToArrayBuffer() is defined
-//     device.queue.writeBuffer(gpuBuffer, 0, arrayBuffer);
-//   }
-// }
-
-// export async function handleLargeFile(device: GPUDevice, blob: Blob) {
-//   let start = performance.now();
-//   const chunkSize = 268435456; //MAX_GPU_BUFFER_SIZE / 10; //268435456; //2 * 1024 * 1024 * 1024; // 2GB
-//   let gpuBuffers = createGPUBufferChunks(device, blob, chunkSize);
-
-//   await mapBlobToGPUBuffers(device, blob, gpuBuffers);
-//   console.log(performance.now() - start)
-//   // Now, gpuBuffers contains multiple GPU buffers, each with a chunk of the file
-// }
-
-
-// export async function handleLargeFile(gpuDevice: GPUDevice, blob: Blob) {
-//   const chunkSize =  268435456; //1 * 1024 * 1024 * 1024; // 1GB, adjust as needed
-//   const chunks = sliceBlob(blob, chunkSize);
-//   const gpuBuffer = createLargeGPUBuffer(gpuDevice, Math.min(blob.size, 268435456));
-
-//   await mapChunksToGPUBuffer(gpuDevice, gpuBuffer, chunks);
-//   // Now, gpuBuffer contains the entire file data
-// }
 
 export const get8kTexturesForBlob = (device: GPUDevice, file: File) => {
   const texSize = 4 * (8192 ** 2);
@@ -272,7 +161,7 @@ export const writeBlobToTexturelayers = async (
       );
     });
   }
-  console.log('kick off job time: ', performance.now() - start);
+  // console.log('kick off job time: ', performance.now() - start);
   await Promise.all(proms);
   console.log('total time: ', performance.now() - start);
 

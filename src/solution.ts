@@ -27,6 +27,21 @@ const createComputeShaderPipeline = (params:CreateComputeShaderPipelineParams) =
   return pipeline;
 }
 
+const YM = 0;
+const EI = 1;
+const COUNTRY = 2;
+const CUSTOMS = 3;
+const HS9 = 4;
+const Q1 = 5;
+const Q2 = 6;
+const YEN = 7;
+
+const DESCENDING = 0;
+const ASCENDING = 1;
+
+const COUNTRIES_RANGE = 1000;
+const YEARS_RANGE = 50;
+
 export const main = async(
   adapter: GPUAdapter,
   device: GPUDevice,
@@ -65,9 +80,7 @@ export const main = async(
 
   const startIngestionOfFile = async (
     device: GPUDevice,
-    // pipeline: GPUComputePipeline,
     ingestCSVTextureShader: string,
-    parseCSVTextureShader: string,
     files: FileList,
   ) => {
     const file = files[0]; //@ts-ignore
@@ -92,47 +105,40 @@ export const main = async(
       layers,
       textureView,
     } = await UTILS.writeBlobToTexturelayers(device, file);
-    
-    /* Note: Assuming ~ 50 characters per line
-    * (1) MB = 1024 ** 2
-    * (1) GB = 1024 ** 3 
-    * (50 x uint8 characters per line) for a 4.5GB File:
-    * (4.5 * 1024 ** 3) / 50 = 96636764.16
-    * 96636764 / (1024 * 1024) = 92 MB
-    * Add on an extra 30% as a margin of error:
-    * 90 + 30 MB needed to store the row start indices
-    */
-    const MB = Math.pow(1024, 2);
-    const size = 120 * MB; 
-    const rowIndicesGPUBuffer = device.createBuffer({
-      label: 'row indicies array gpu buffer',
-      size,
+    const queryGPUBuffer = device.createBuffer({
+      label: 'query struct gpu buffer',
+      size: 6 * 4 + (YEARS_RANGE * COUNTRIES_RANGE * 4),
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
     });
+    const queryData = new Uint32Array(6);
+    const CRANGE_START = 0;
+    const KEEP = 1;
+    queryData.set([COUNTRY, Q1, CRANGE_START, COUNTRIES_RANGE, DESCENDING, KEEP]);
+    device.queue.writeBuffer(queryGPUBuffer, 0, queryData);
+
     const counterGPUBuffer = device.createBuffer({
-      label: 'atomic index counter gpu buffer',
+      label: 'atomic row counter gpu buffer',
       size: 20, // Min size is 20 bytes
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
     });
+
     const readCounterGPUBuffer = device.createBuffer({
       label: 'read GPU buffer for the atomic index counter',
-      size: 20, // Min size is 20 bytes
+      size: counterGPUBuffer.size,
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
     });
-    // const debugRowsPerLayerGPUBuffer = device.createBuffer({
-    //   label: 'debug - row counts per layer',
-    //   size: 4 * 17, // 17 layers
-    //   usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
-    // });
-    // const readDebugGPUBuffer = device.createBuffer({
-    //   label: 'read debug rows per layer GPU buffer',
-    //   size: 4 * 17,
-    //   usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-    // });
+    const readQueryGPUBuffer = device.createBuffer({
+      label: 'read query GPU buffer for the atomic sum values',
+      size: queryGPUBuffer.size, 
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+    });
 
     const ingestionComputePipeline = createComputeShaderPipeline({
-      device, shaderProgram: ingestCSVTextureShader,
-      name: 'ingest csv',
+      name: 'ingest csv', device, //@ts-ignore
+      shaderProgram: ingestCSVTextureShader.replaceAll(
+        '/*QUERY_ROWS*/',
+        `${COUNTRIES_RANGE}`,
+      ),
     });
 
     const { computePass, encoder } = UTILS.addShaderResourcesToPipeline({
@@ -144,8 +150,8 @@ export const main = async(
         * match the order used in the <shader name>.wgsl file.
         */
         {
-          name: 'row indices array gpu buffer binding',
-          resource: rowIndicesGPUBuffer,
+          name: 'query struct gpu buffer binding',
+          resource: queryGPUBuffer,
         },
         {
           name: 'atomic index counter gpu buffer binding',
@@ -155,14 +161,10 @@ export const main = async(
           name: 'stacked2DTexture View',
           resource: textureView,
         },
-        // {
-        //   name: 'debug - atomic rowCounts per layer',
-        //   resource: debugRowsPerLayerGPUBuffer,
-        // }
       ],
     });
     /* Note: Workgroup size is defined in ingestCSVTexture.wgsl */
-    let wgSizeDims = { x: 32, y: 32, z: 1 }; // 32 * 32 = 1024 total concurrent jobs per workgroup 
+    let wgSizeDims = { x: 32, y: 32, z: 1 }; 
 
     /* Note: Supposedly, there's no measurable benefit
     * in performance by making compute passes in 2D or 3D,
@@ -185,11 +187,18 @@ export const main = async(
     /* Verify that the correct number of rows
     * has been detected in the CSV File.
     */
+    // encoder.copyBufferToBuffer(
+    //   // Encode a command to copy the counter buffer to a mappable buffer.
+    //   counterGPUBuffer, 0,
+    //   readCounterGPUBuffer, 0, 
+    //   counterGPUBuffer.size
+    // );
+
     encoder.copyBufferToBuffer(
       // Encode a command to copy the counter buffer to a mappable buffer.
-      counterGPUBuffer, 0,
-      readCounterGPUBuffer, 0, 
-      counterGPUBuffer.size
+      queryGPUBuffer, 0,
+      readQueryGPUBuffer, 0, 
+      queryGPUBuffer.size
     );
 
     // Debug
@@ -208,88 +217,53 @@ export const main = async(
     device.queue.submit([commandBuffer]);
     console.log('job execution time: ', performance.now() - start);
 
-    start = performance.now();
+    const readStart = performance.now();
     // Read the results
-    await readCounterGPUBuffer.mapAsync(GPUMapMode.READ);
-    const result = new Uint32Array(readCounterGPUBuffer.getMappedRange());
-    const numRows = result[0];
-    console.log('time to read data: ', performance.now() - start);
-    console.log('number of rows: ', numRows);
+    // await readCounterGPUBuffer.mapAsync(GPUMapMode.READ);
+    // const counterResult = new Uint32Array(readCounterGPUBuffer.getMappedRange());
+    // const numRows = counterResult[0];
+    // console.log('number of rows: ', numRows);
 
-    // // Setup and start the next compute pass for parsing the csv file
-    // const exportCountGPUBuffer = device.createBuffer({
-    //   label: 'atomic index counter gpu buffer',
-    //   size: 259 * 4, // 259 countries x 4 bytes per Uint32 value
-    //   usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
-    // });
+    await readQueryGPUBuffer.mapAsync(GPUMapMode.READ);
+    const qdata = readQueryGPUBuffer.getMappedRange()
+    const queryResult = new Uint32Array(qdata);
+    window.foo = qdata;
+    const finish = performance.now();
+    console.log('time to read data: ', finish - readStart);
+    console.log('total time: ', finish - start);
 
-    // /* Ingest csv file as 1 row per workgroup. 
-    // * Assuming 50 characters per row, 
-    // * where each pixel is 4 bytes/characters.
-    // */ 
-    // wgSizeDims = { x: 13, y: 1, z: 1 }; 
-    // // Determine shape and amount of total work groups
-    // const MAX_WG_NUMBER_1D = device.limits.maxComputeWorkgroupsPerDimension; 
-    // /* Keep the number of works groups per
-    // * dimension at a minimum to encourage
-    // * cross hardware compatibility
-    // */ 
-    // const numWorkGroupsPerDim = Math.ceil(numRows ** (1/3));
-    // numWorkGroupsX = numWorkGroupsPerDim;
-    // numWorkGroupsY = numWorkGroupsPerDim;
-    // numWorkGroupsZ = numWorkGroupsPerDim;
-    // if (numWorkGroupsX > MAX_WG_NUMBER_1D) {
-    //   throw new Error(`Required work groups per dimension (${numWorkGroupsX}) exceeds the maximum (${MAX_WG_NUMBER_1D}) allowed. Splitting the workloads across multiple compute passes is needed.`);
-    // }
+    //  console.log(queryResult)
+    const queryStruct = {
+      indexByColumn: queryResult[0],
+      quantityColumn: queryResult[1],
+      indexColumnRangeStart: queryResult[2],
+      indexColumnRangeEnd: queryResult[3],
+      sortBy: queryResult[4],
+      keep: queryResult[5],
+      valsList: [...queryResult.slice(6)]
+    }
+    console.log(queryStruct);
+    //@ts-ignore
+    queryStruct.valsList.size =  queryStruct.valsList.length;
+    //@ts-ignore
+    const byCountryByYear = UTILS.sliceBlob(queryStruct.valsList, 50) as number[][];
+    const byCountry = byCountryByYear.map(exports => exports.reduce((a, b) => a + b, 0));
+    const maxExports = Math.max(...byCountry);
+    const countryCode = byCountry.indexOf(maxExports);
+    console.log(countryCode, ' exports: ', maxExports);
+    console.log({ byCountry, byCountryByYear })
 
-    // console.log({ numWorkGroupsX, numWorkGroupsY, numWorkGroupsZ });
-    // console.log(`dispatching ${numWorkGroupsX * numWorkGroupsY * numWorkGroupsZ} workgroups, each with ${wgSizeDims.x * wgSizeDims.y * wgSizeDims.z} compute invocations`);
-
-    // const parseComputePipeline = createComputeShaderPipeline({
-    //   device, shaderProgram: parseCSVTextureShader, name: 'parse csv', includes: `
-    //   const wg_per_dim: u32 = ${numWorkGroupsPerDim};
-    //   const wg_per_dim_sq: u32 = ${numWorkGroupsPerDim ** 2};
-    //   `,
-    // })
-
-    // const { computePass: computePass2, encoder: encoder2 } = UTILS.addShaderResourcesToPipeline({
-    //   bindGroupName: 'csv parsing bindgroup',
-    //   pipeline: parseComputePipeline,
-    //   device,
-    //   resources: [
-    //     /* Note: The order of these resource bindings must
-    //     * match the order used in the parseCSVTexture.wgsl file.
-    //     */
-    //     {
-    //       name: 'row indices array gpu buffer binding - csv parsing',
-    //       resource: rowIndicesGPUBuffer,
-    //     },
-    //     {
-    //       name: 'atomic array export counter gpu buffer binding',
-    //       resource: exportCountGPUBuffer,
-    //     },
-    //     {
-    //       name: 'stacked2DTexture View - csv parsing',
-    //       resource: textureView,
-    //     },
-    //   ],
-    // });
-
-    // start = performance.now();
-    // computePass2.dispatchWorkgroups(
-    //   numWorkGroupsX, numWorkGroupsY, numWorkGroupsZ,
-    // );
-    // computePass2.end();
-
-    // commandBuffer = encoder2.finish();
-    // device.queue.submit([commandBuffer]);
-    // console.log('job execution time: ', performance.now() - start);
+    window.test = (a, offset = 0, mul = 1) => {
+      byCountryByYear[a].forEach((val) => {
+        if (val === 0) return;
+        file.slice((val * mul) + offset, (val * mul) + offset + 50).text().then((res) => {
+          console.log('testing row start:\n', res)
+        })
+      })
+    }
   }
 
   UTILS.setupFileDropListener((files) => {
-    startIngestionOfFile(
-      device, ingestCSVTexture,
-      parseCSVTexture, files
-    );
+    startIngestionOfFile(device, ingestCSVTexture, files);
   });
 };

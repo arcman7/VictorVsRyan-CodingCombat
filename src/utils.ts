@@ -83,6 +83,11 @@ export const countOccurrences = (str: string, subString: string) => {
   return matches ? matches.length : 0;
 }
 
+export const uint8ArrayToText = (uint8Array: Uint8Array) => {
+  let decoder = new TextDecoder('utf-8');
+  return decoder.decode(uint8Array);
+}
+
 export const expandBuffer = (
   sourceBuffer: ArrayBuffer, newSizeBytes: number
 ) => {
@@ -90,16 +95,19 @@ export const expandBuffer = (
     throw new Error('New buffer size must be larger than the original.')
   }
   // Create a new buffer of the required size
-  // let newBuffer = new ArrayBuffer(newSizeBytes);
+  let newBuffer = new ArrayBuffer(newSizeBytes);
 
   // Create views for copying data
   let sourceView = new Uint8Array(sourceBuffer);
-  let newView = new Uint8Array(newSizeBytes);
+  let newView = new Uint8Array(newBuffer);
 
   // Copy data from the source buffer to the new buffer
   newView.set(sourceView, 0);
+  console.log(uint8ArrayToText(newView.slice(0, 5000)))
+  console.log('last:')
+  console.log(uint8ArrayToText(newView.slice(sourceView.length - 5000, sourceView.length)))
   // The rest of the new buffer will be initialized to 0s
-  return newView;
+  return newBuffer;
 }
 
 export const get8kTexturesForBlob = (device: GPUDevice, file: File) => {

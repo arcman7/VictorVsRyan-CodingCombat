@@ -14,7 +14,8 @@ async function init(main: (
 ) => Promise<void>) {
   const adapter = await navigator.gpu?.requestAdapter();
   const device = await adapter?.requestDevice({
-    // requiredFeatures: [ ],
+      
+    requiredFeatures: ["timestamp-query" ],
     requiredLimits: {
       maxBufferSize: 1024 * 1024 * 1024, // 1GB
       maxComputeInvocationsPerWorkgroup: 1024,
@@ -22,6 +23,7 @@ async function init(main: (
       maxComputeWorkgroupSizeY: 1024,
       maxComputeWorkgroupSizeZ: 64,
     },
+    
   });
   if (!device) {
     alert('need a browser that supports WebGPU');

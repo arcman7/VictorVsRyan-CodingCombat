@@ -1,6 +1,6 @@
 import * as UTILS from './utils';
 import ingestCSVTexture from './shaders/ingestCSVTexture.wgsl';
-import parseCSVTexture from './shaders/parseCSVTexture.wgsl';
+// import parseCSVTexture from './shaders/parseCSVTexture.wgsl';
 
 type CreateComputeShaderPipelineParams = {
   device: GPUDevice,
@@ -52,37 +52,15 @@ export const main = async(
     adapter, device, canvas, context
   };
 
-  // const module1 = device.createShaderModule({
-  //   label: 'ingest csv compute module',
-  //   code: ingestCSVTexture,
-  // });
-  // const pipeline1 = device.createComputePipeline({
-  //   label: 'ingest csv compute pipeline',
-  //   layout: 'auto',
-  //   compute: {
-  //     module: module1,
-  //     entryPoint: 'main',
-  //   },
-  // });
-
-  // const module2 = device.createShaderModule({
-  //   label: 'parse csv compute module',
-  //   code: parseCSVTexture,
-  // });
-  // const pipeline2 = device.createComputePipeline({
-  //   label: 'parse csv compute pipeline',
-  //   layout: 'auto',
-  //   compute: {
-  //     module: module2,
-  //     entryPoint: 'main',
-  //   },
-  // });
-
   const startIngestionOfFile = async (
     device: GPUDevice,
     ingestCSVTextureShader: string,
     files: FileList,
   ) => {
+    const encoder = device.createCommandEncoder({
+      label: 'csv gpu ingestion encoder'
+    });
+
     const file = files[0]; //@ts-ignore
     window.file = file;
     // Size of the CSV file in bytes
@@ -98,7 +76,7 @@ export const main = async(
     const totalTextureBytes = textureWidth * textureHeight * bytesPerPixel;
     console.log(files, fileSize);
     console.log({ textureWidth, textureHeight, totalTextureBytes });
-  
+
     const {    
       // stacked2DTexture,
       // sampler,
@@ -121,17 +99,35 @@ export const main = async(
       size: 20, // Min size is 20 bytes
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
     });
-
     const readCounterGPUBuffer = device.createBuffer({
       label: 'read GPU buffer for the atomic index counter',
       size: counterGPUBuffer.size,
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
     });
-    const readQueryGPUBuffer = device.createBuffer({
+    const readQueryStructGPUBuffer = device.createBuffer({
       label: 'read query GPU buffer for the atomic sum values',
       size: queryGPUBuffer.size, 
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
     });
+    const readTimeQueryGPUBuffer = device.createBuffer({
+      label: 'read time query GPU buffer for timing dispatch',
+      size: 8 * capacity,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+    })
+    // Timing
+    const querySet = device.createQuerySet({
+      type: "timestamp",
+      count: capacity,
+    });
+    const timeQueryGPUBuffer = device.createBuffer({
+      size: 8 * capacity,
+      usage: GPUBufferUsage.QUERY_RESOLVE 
+        | GPUBufferUsage.STORAGE
+        | GPUBufferUsage.COPY_SRC
+        | GPUBufferUsage.COPY_DST,
+    });
+
+    timestamp(encoder, querySet, 'read csv texture pixels - start');
 
     const ingestionComputePipeline = createComputeShaderPipeline({
       name: 'ingest csv', device, //@ts-ignore
@@ -141,10 +137,12 @@ export const main = async(
       ),
     });
 
-    const { computePass, encoder } = UTILS.addShaderResourcesToPipeline({
+
+    const { computePass } = UTILS.addShaderResourcesToPipeline({
       bindGroupName: 'csv ingestion bindgroup',
       pipeline: ingestionComputePipeline,
       device,
+      encoder,
       resources: [
         /* Note: The order of these resource bindings must
         * match the order used in the <shader name>.wgsl file.
@@ -178,12 +176,19 @@ export const main = async(
     let numWorkGroupsY = textureHeight / wgSizeDims.y;
     let numWorkGroupsZ = layers;
  
-    let start = performance.now();
+
+
+    // Add timestamps in between GPU commands
+    // encoder.writeTimestamp(querySet, 0);// Initial timestamp
+    // let start = performance.now();
     computePass.dispatchWorkgroups(
       numWorkGroupsX, numWorkGroupsY, numWorkGroupsZ,
     );
     computePass.end();
 
+    // encoder.writeTimestamp(querySet, 1);
+    timestamp(encoder, querySet, 'read csv texture pixels - end');
+    
     /* Verify that the correct number of rows
     * has been detected in the CSV File.
     */
@@ -197,8 +202,14 @@ export const main = async(
     encoder.copyBufferToBuffer(
       // Encode a command to copy the counter buffer to a mappable buffer.
       queryGPUBuffer, 0,
-      readQueryGPUBuffer, 0, 
+      readQueryStructGPUBuffer, 0, 
       queryGPUBuffer.size
+    );
+
+    encoder.copyBufferToBuffer(
+      timeQueryGPUBuffer, 0,
+      readTimeQueryGPUBuffer, 0,
+      timeQueryGPUBuffer.size,
     );
 
     // Debug
@@ -212,35 +223,53 @@ export const main = async(
     //   debugRowsPerLayerGPUBuffer.size
     // );
 
-    // Finish encoding and submit the commands
-    let commandBuffer = encoder.finish();
-    device.queue.submit([commandBuffer]);
-    console.log('job execution time: ', performance.now() - start);
+    encoder.resolveQuerySet(
+      querySet, 
+      0,// index of first query to resolve 
+      capacity,//number of queries to resolve
+      timeQueryGPUBuffer, 
+      0
+    );// destination offset
 
-    const readStart = performance.now();
+
+    // Finish encoding and submit the commands
+    const commandBuffer = encoder.finish();
+    device.queue.submit([commandBuffer]);
+
+
+    // console.log('job execution time: ', performance.now() - start);
+
+    // const readStart = performance.now();
+
     // Read the results
     // await readCounterGPUBuffer.mapAsync(GPUMapMode.READ);
     // const counterResult = new Uint32Array(readCounterGPUBuffer.getMappedRange());
     // const numRows = counterResult[0];
     // console.log('number of rows: ', numRows);
 
-    await readQueryGPUBuffer.mapAsync(GPUMapMode.READ);
-    const qdata = readQueryGPUBuffer.getMappedRange()
-    const queryResult = new Uint32Array(qdata);
-    window.foo = qdata;
-    const finish = performance.now();
-    console.log('time to read data: ', finish - readStart);
-    console.log('total time: ', finish - start);
+    await readQueryStructGPUBuffer.mapAsync(GPUMapMode.READ);
+    const qdata = readQueryStructGPUBuffer.getMappedRange()
+    // const qdata = await UTILS.readBuffer(device, readQueryStructGPUBuffer);
+    const queryStructResult = new Uint32Array(qdata);
+    // const finish = performance.now();
+    // console.log('time to read data: ', finish - readStart);
+    // console.log('total time: ', finish - start);
 
-    //  console.log(queryResult)
+    await readTimeQueryGPUBuffer.mapAsync(GPUMapMode.READ);
+    const timeQueryArrayBuffer = readTimeQueryGPUBuffer.getMappedRange();
+    // await UTILS.readBuffer(device, timeQueryGPUBuffer);
+    const timingsNanoseconds = new BigInt64Array(timeQueryArrayBuffer);
+    printTimestampsWithLabels(timingsNanoseconds, queryLabelMap);
+
+    //  console.log(queryStructResult)
     const queryStruct = {
-      indexByColumn: queryResult[0],
-      quantityColumn: queryResult[1],
-      indexColumnRangeStart: queryResult[2],
-      indexColumnRangeEnd: queryResult[3],
-      sortBy: queryResult[4],
-      keep: queryResult[5],
-      valsList: [...queryResult.slice(6)]
+      indexByColumn: queryStructResult[0],
+      quantityColumn: queryStructResult[1],
+      indexColumnRangeStart: queryStructResult[2],
+      indexColumnRangeEnd: queryStructResult[3],
+      sortBy: queryStructResult[4],
+      keep: queryStructResult[5],
+      valsList: [...queryStructResult.slice(6)]
     }
     console.log(queryStruct);
     //@ts-ignore
@@ -253,7 +282,7 @@ export const main = async(
     console.log(countryCode, ' exports: ', maxExports);
     console.log({ byCountry, byCountryByYear })
 
-    window.test = (a, offset = 0, mul = 1) => {
+    window.test = (a = 0, offset = 0, mul = 1) => {
       byCountryByYear[a].forEach((val) => {
         if (val === 0) return;
         file.slice((val * mul) + offset, (val * mul) + offset + 50).text().then((res) => {
@@ -267,3 +296,44 @@ export const main = async(
     startIngestionOfFile(device, ingestCSVTexture, files);
   });
 };
+
+
+
+
+
+let queryIndex = 0;
+const maxNumberOfQueries = 8;
+const capacity = 2;//Max number of timestamps we chose to store
+const queryLabelMap: {[key: number]: string } = {};
+
+export const timestamp = (
+  encoder: GPUCommandEncoder, querySet: GPUQuerySet, label: string
+) => {
+  encoder.writeTimestamp(querySet, queryIndex);
+  queryLabelMap[queryIndex] = label
+  queryIndex++;
+  if (queryIndex >= maxNumberOfQueries) queryIndex = 0;
+}
+
+export const printTimestampsWithLabels = (timingsNanoseconds: BigInt64Array, labelMap: {[key: number]: string }) => {
+  console.log("==========")
+  // Convert list of nanosecond timestamps to diffs in milliseconds
+  const timeDiffs = []
+  for (let i = 1; i < timingsNanoseconds.length; i++) {
+    let diff = Number(timingsNanoseconds[i] - timingsNanoseconds[i - 1])
+    diff /= 1_000_000
+    timeDiffs.push(diff)
+  }
+
+  // Print each diff with its associated label
+  for (let i = 0; i < timeDiffs.length; i++) {
+    const time = timeDiffs[i];
+    const label = labelMap[i + 1]
+    if (label) {
+      console.log(label, time + "ms"); //.toFixed(2) + "ms")
+    } else {
+      console.log(i, time + "ms"); //.toFixed(2) + "ms")
+    }
+  }
+  console.log("==========")
+}

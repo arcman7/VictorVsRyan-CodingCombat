@@ -88,6 +88,17 @@ export const uint8ArrayToText = (uint8Array: Uint8Array) => {
   return decoder.decode(uint8Array);
 }
 
+// export const readBuffer = async (device: GPUDevice, encoder: GPUCommandEncoder, buffer: GPUBuffer, ) => {
+//   const size = buffer.size;
+//   const gpuReadBuffer = device.createBuffer({size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+//   encoder.copyBufferToBuffer(buffer, 0, gpuReadBuffer, 0, size);
+//   // const copyCommands = encoder.finish();
+//   // device.queue.submit([copyCommands]);
+//   await gpuReadBuffer.mapAsync(GPUMapMode.READ);
+//   return gpuReadBuffer.getMappedRange();
+// }
+
+
 export const expandBuffer = (
   sourceBuffer: ArrayBuffer, newSizeBytes: number
 ) => {
@@ -103,12 +114,16 @@ export const expandBuffer = (
 
   // Copy data from the source buffer to the new buffer
   newView.set(sourceView, 0);
-  console.log(uint8ArrayToText(newView.slice(0, 5000)))
-  console.log('last:')
-  console.log(uint8ArrayToText(newView.slice(sourceView.length - 5000, sourceView.length)))
+  // console.log(uint8ArrayToText(newView.slice(0, 5000)))
+  // console.log('last:')
+  // console.log(uint8ArrayToText(newView.slice(sourceView.length - 5000, sourceView.length)))
+
   // The rest of the new buffer will be initialized to 0s
   return newBuffer;
 }
+
+
+
 
 export const get8kTexturesForBlob = (device: GPUDevice, file: File) => {
   const texSize = 4 * (8192 ** 2);
@@ -171,7 +186,7 @@ export const writeBlobToTexturelayers = async (
   }
   // console.log('kick off job time: ', performance.now() - start);
   await Promise.all(proms);
-  console.log('total time: ', performance.now() - start);
+  console.log('Texture upload time: ', performance.now() - start);
 
   const sampler = device.createSampler({
     magFilter: "nearest",
@@ -239,14 +254,17 @@ export type ShaderResource = GPUSampler
 | GPUBuffer
 | GPUExternalTexture;
 export type ShaderResourceInfo = { resource: ShaderResource, name: string };
-export const addShaderResourcesToPipeline = (addShaderResourceParams: {
-  device: GPUDevice, pipeline: GPUComputePipeline,
-  resources: ShaderResourceInfo[],
-  computePass?: GPUComputePassEncoder,
-  bindGroupName?: string
-}) => {
+export const addShaderResourcesToPipeline = (
+  addShaderResourceParams: {
+    device: GPUDevice, pipeline: GPUComputePipeline,
+    resources: ShaderResourceInfo[],
+    computePass?: GPUComputePassEncoder,
+    encoder?: GPUCommandEncoder,
+    bindGroupName?: string
+  }
+) => {
   const { device, pipeline, resources, bindGroupName } = addShaderResourceParams;
-  let computePass = addShaderResourceParams.computePass;
+  let {computePass, encoder } = addShaderResourceParams;
 
   const entries: GPUBindGroupEntry[] = [];
   resources.forEach(({resource, name }) => {
@@ -269,7 +287,7 @@ export const addShaderResourcesToPipeline = (addShaderResourceParams: {
     entries,
   });
   // Encode commands to do the computation
-  const encoder = device.createCommandEncoder({
+  encoder ||=  device.createCommandEncoder({
     label: `${bindGroup.label} encoder`,
   });
   computePass ||= encoder.beginComputePass({
@@ -279,55 +297,4 @@ export const addShaderResourcesToPipeline = (addShaderResourceParams: {
   computePass.setBindGroup(0, bindGroup);
   return { computePass, encoder, bindGroup };
 }
-
-
-// export const writeArrayBufferToTexture = async (
-//   device: GPUDevice, tex8k: GPUTexture, dataArrayBuffer: ArrayBuffer
-// ) => {
-//   const dataBuffer = device.createBuffer({
-//     size: dataArrayBuffer.byteLength,
-//     usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.MAP_WRITE,
-//     mappedAtCreation: true
-//   });
-  
-//   new Uint8Array(dataBuffer.getMappedRange()).set(new Uint8Array(dataArrayBuffer));
-//   dataBuffer.unmap();
-  
-//   const commandEncoder = device.createCommandEncoder();
-//   const copySize = {
-//     width: 8192,
-//     height: 8192,
-//     depthOrArrayLayers: 1
-//   };
-
-//   // commandEncoder.copyBufferToTexture(
-//   //   { buffer: dataBuffer, bytesPerRow: 4 * copySize.width, offset:  },
-//   //   { texture: tex8k },
-//   //   copySize
-//   // );
-
-//   // const gpuCommands = commandEncoder.finish();
-//   // device.queue.submit([gpuCommands]);
-
-
-// }
-
-
-
-
-// export const createStorageBufferFromFile = (device: GPUDevice, file: File) => {
-//   const part1 = file.slice(0, 4294967292);
-//   const part2 = file.slice(4294967292, file.size - 4294967292);
-//   const input = new Float32Array([1, 3, 5]);
-//   // create a buffer on the GPU to hold our computation
-//   // input and output
-//   const workBuffer = device.createBuffer({
-//     label: `${file.name}  - storage buffer`,
-//     size: input.byteLength,
-//     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-//   });
-//   // Copy our input data to that buffer
-//   device.queue.writeBuffer(workBuffer, 0, input);
-// }
-
 

@@ -279,6 +279,47 @@ fn main(
     return;
   }
 
+  let cColInfo = getIndicesOfColumn(COUNTRY);
+  let countryPixel1Ind = (rowStartIndex + cColInfo.start)/4;
+  let countryPixel2Ind = (rowStartIndex + cColInfo.start + 4)/4;
+
+  var countryTexPos = getPosition(countryPixel1Ind);
+  let country_pixel_1 = textureLoad(
+    csvTexture,
+    vec2(countryTexPos.x, countryTexPos.y),
+    countryTexPos.z,
+    0
+  );
+  // var country_pixel_2 = vec4<u32>(COMMA, 0, 0, 0);
+  // if (countryPixel1Ind != countryPixel2Ind) {
+  countryTexPos = getPosition(countryPixel2Ind);
+  let country_pixel_2 = textureLoad(
+    csvTexture,
+    vec2(countryTexPos.x, countryTexPos.y),
+    countryTexPos.z,
+    0
+  );
+  // }
+
+  let countryPixelVals = array<u32, 8>(
+    country_pixel_1.r, country_pixel_1.g, country_pixel_1.b, country_pixel_1.a, 
+    country_pixel_2.r, country_pixel_2.g, country_pixel_2.b, country_pixel_2.a, 
+  );
+
+  var commaOffset = channelOf(country_pixel_1, COMMA);
+
+  var cOffset: u32 = 0; //channelOffset;
+  if (commaOffset != NOT_FOUND) {
+    cOffset = commaOffset + 1;
+  }
+
+  var countryVal: u32 = 0;
+  // let cOffset = (channelOffset + cColInfo.start) % 4;
+  countryVal += getNumVal(countryPixelVals[cOffset + 0]) * 100;
+  countryVal += getNumVal(countryPixelVals[cOffset + 1]) * 10;
+  countryVal += getNumVal(countryPixelVals[cOffset + 2]);
+  let yearCol = CURRENT_YEAR - ymVal;
+
   /* Shitty code start */
 
   // Read in q1 one pixel at a time (assuming 3 pixels max)
@@ -311,7 +352,6 @@ fn main(
     q1TexPos.z,
     0
   );
-
 
   // Read in q2 one pixel at a time (assuming 3 pixels max)
   // 1st Pixel
@@ -377,53 +417,25 @@ fn main(
 
   var q1Val: u32 = 0;
   for (var i: u32 = q1Offset; i < comma1; i++) {
+    if (qVals[i] == COMMA) {
+      q1Val = 420;
+      atomicAdd(&query.valsList[countryVal][yearCol], q1Val);
+      return;
+    }
     q1Val += getNumVal(qVals[i]) * u32(pow(10.0, f32(comma1 - i - 1 - q1Offset)));
   }
   var q2Val: u32 = 0;
   for (var i: u32 = comma1 + 1; i < comma2; i++) {
-    q2Val += getNumVal(qVals[i]) * u32(pow(10.0, f32(comma2 - (comma1 + 1 + i) - 1)));
+    if (qVals[i] == COMMA) {
+      q1Val = 0;
+      q2Val = 420;
+      atomicAdd(&query.valsList[countryVal][yearCol], q1Val + q2Val);
+      return;
+    }
+    q2Val += getNumVal(qVals[i]) * u32(pow(10.0, f32(comma2 - i - 1)));
   }
 
-  let cColInfo = getIndicesOfColumn(COUNTRY);
-  let countryPixel1Ind = (rowStartIndex + cColInfo.start)/4;
-  let countryPixel2Ind = (rowStartIndex + cColInfo.start + 4)/4;
-
-  var countryTexPos = getPosition(countryPixel1Ind);
-  let country_pixel_1 = textureLoad(
-    csvTexture,
-    vec2(countryTexPos.x, countryTexPos.y),
-    countryTexPos.z,
-    0
-  );
-  // var country_pixel_2 = vec4<u32>(COMMA, 0, 0, 0);
-  // if (countryPixel1Ind != countryPixel2Ind) {
-  countryTexPos = getPosition(countryPixel2Ind);
-  let country_pixel_2 = textureLoad(
-    csvTexture,
-    vec2(countryTexPos.x, countryTexPos.y),
-    countryTexPos.z,
-    0
-  );
-  // }
-
-  let countryPixelVals = array<u32, 8>(
-    country_pixel_1.r, country_pixel_1.g, country_pixel_1.b, country_pixel_1.a, 
-    country_pixel_2.r, country_pixel_2.g, country_pixel_2.b, country_pixel_2.a, 
-  );
-
-  var commaOffset = channelOf(country_pixel_1, COMMA);
-
-  var cOffset: u32 = 0; //channelOffset;
-  if (commaOffset != NOT_FOUND) {
-    cOffset = commaOffset + 1;
-  }
-
-  var countryVal: u32 = 0;
-  // let cOffset = (channelOffset + cColInfo.start) % 4;
-  countryVal += getNumVal(countryPixelVals[cOffset + 0]) * 100;
-  countryVal += getNumVal(countryPixelVals[cOffset + 1]) * 10;
-  countryVal += getNumVal(countryPixelVals[cOffset + 2]);
-  let yearCol = CURRENT_YEAR - ymVal;
+  
   // atomicAdd(&query.valsList[countryVal][yearCol], q1Val + q2Val);
   // atomicExchange(&query.valsList[ countryVal % 242][yearCol], countryVal);
   // if (GlobalInvocationID.z != 12 ) {
